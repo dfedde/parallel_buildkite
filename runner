@@ -1,0 +1,79 @@
+#!/bin/bash
+
+JOB="${BUILDKITE_PARALLEL_JOB:=0}"
+JOB_COUNT="${BUILDKITE_PARALLEL_JOB_COUNT:=1}"
+DEBUG="${DEBUG:=false}"
+KEEP_LOGS="${KEEP_LOGS:=false}"
+
+LOG_DIR="${LOG_DIR:=$(mktemp -d)}"
+function finish {
+  if [ ! $KEEP_LOGS == "true" ]; then
+    rm -rf "$LOG_DIR"
+  fi
+}
+trap finish EXIT
+
+function usage {
+  echo "This tool will break apart tests to run in parallel on buildkite"
+  echo
+  echo "usage:"
+  echo "$0 <runner> <test> [<test> ...]"
+  echo
+  echo "example:"
+  echo "$0 make test1 test2"
+  echo
+  echo "Optional ENV vars:"
+  echo "  BUILDKITE_PARALLEL_JOB:"
+  echo "    job number must be less then BUILDKITE_PARALLEL_JOB_COUNT-1"
+  echo
+  echo "  BUILDKITE_PARALLEL_JOB_COUNT:"
+  echo "    the number of total jobs"
+  echo
+  echo "  DEBUG:"
+  echo "    set to \"true\" for all logs to be printed"
+  echo
+  echo "  KEEP_LOGS:"
+  echo "    set to \"true\" if you want to keep logs on disk"
+  echo
+  echo "  LOG_DIR:"
+  echo "    the directory the logs are stored in"
+  echo "    (defaults to a directory created by mktemp -d)"
+}
+
+if [ $# -lt 2 ]; then
+ usage
+ exit 1 
+fi
+
+RUNNER="$1";shift
+TESTS=( "$@" )
+
+spinner()
+{
+    local pid=$1
+    local delay=0.75
+    local spinstr='|/-\'
+    printf "  "
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf "\e[1D%c" "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+    done
+    echo
+}
+
+for test_index in ${!TESTS[@]}; do
+  test_name="${TESTS[$test_index]}"
+  if [ $(( (test_index + JOB) % JOB_COUNT )) -eq 0 ]; then
+    printf "running $test_name"
+
+    eval "$RUNNER $test_name" &> "$LOG_DIR/$test_name" &
+    pid=$!
+    spinner $pid
+
+    if [ $DEBUG == "true" ] || ! wait $pid; then
+      cat "$LOG_DIR/$test_name"
+    fi
+  fi
+done

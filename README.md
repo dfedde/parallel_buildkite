@@ -3,10 +3,10 @@
 This tool will break apart tests to run in parallel on buildkite
 
 ## usage
-`./runner <runner> <test> [<test> ...]`
+`parallel_buildkite <runner> <test> [<test> ...]`
 
 ## examples
-`./runner make test1 test2`
+`parallel_buildkite make test1 test2`
 
 ## Optional ENV vars
 

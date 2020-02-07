@@ -11,12 +11,12 @@ function finish {
     rm -rf "$LOG_DIR"
   fi
 }
+
 trap finish EXIT
 
 function usage {
   echo "This tool will break apart tests to run in parallel on buildkite"
-  echo
-  echo "usage:"
+  echo echo "usage:"
   echo "$0 <runner> <test> [<test> ...]"
   echo
   echo "example:"
@@ -50,30 +50,39 @@ TESTS=( "$@" )
 
 spinner()
 {
-    local pid=$1
+    local message=$1; shift
+    local pid=$1; shift
     local delay=0.75
     local spinstr='|/-\'
-    printf "  "
+    printf "$message"
     while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
         local temp=${spinstr#?}
-        printf "\e[1D%c" "$spinstr"
+        printf "\e[2K\e[1000D%s %c" "$message" "$spinstr"
         local spinstr=$temp${spinstr%"$temp"}
         sleep $delay
     done
+    printf "\e[2K\e[1000D%s" "$message"
     echo
 }
 
 for test_index in ${!TESTS[@]}; do
   test_name="${TESTS[$test_index]}"
   if [ $(( (test_index + JOB) % JOB_COUNT )) -eq 0 ]; then
-    printf "running $test_name"
-
-    eval "$RUNNER $test_name" &> "$LOG_DIR/$test_name" &
-    pid=$!
-    spinner $pid
-
-    if [ $DEBUG == "true" ] || ! wait $pid; then
-      cat "$LOG_DIR/$test_name"
+     message="running $test_name"
+    if [ $DEBUG == "true" ] && [ $KEEP_LOGS == "false" ]; then
+      printf "$message"
+      eval "$RUNNER $test_name"
+    elif [ $DEBUG == "true" ] && [ $KEEP_LOGS == "true" ]; then
+      eval "$RUNNER $test_name" 2>&1 | tee "$LOG_DIR/$test_name" &
+      pid=$!
+      spinner "$message" $pid
+    else
+      eval "$RUNNER $test_name" &> "$LOG_DIR/$test_name" &
+      pid=$!
+      spinner "$message" $pid
+      if ! wait $pid; then
+        cat "$LOG_DIR/$test_name"
+      fi
     fi
   fi
 done
